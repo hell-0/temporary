@@ -22,12 +22,27 @@ class ServerProtocol(asyncio.Protocol):
             self.send_message(decoded)
         else:
             if decoded.startswith("login:"):
-                self.login = decoded.replace("login:", "").replace("\r\n", "")
-                self.transport.write(
-                    f"Привет, {self.login}!\n".encode()
-                )
+                user_name = decoded.replace("login:", "").replace("\r\n", "").strip()
+                if user_name not in self.server.users:
+                    self.login = user_name
+                    self.server.users.append(user_name)
+                    self.transport.write(
+                        f"Привет, {self.login}!\n".encode()
+                    )
+                    self.send_history()
+                else:
+                    self.transport.write(f"Логин {user_name} занят, попробуйте другой\n".encode())
+                    self.transport.abort()
             else:
                 self.transport.write("Неправильный логин\n".encode())
+
+    def send_history(self):
+        if len(self.server.history) >= 10:
+            for message in self.server.history[-10:]:
+                self.transport.write(message.encode())
+        else:
+            for message in self.server.history:
+                self.transport.write(message.encode())
 
     def connection_made(self, transport: transports.Transport):
         self.server.clients.append(self)
@@ -40,6 +55,7 @@ class ServerProtocol(asyncio.Protocol):
 
     def send_message(self, content: str):
         message = f"{self.login}: {content}\n"
+        self.server.history.append(message)
 
         for user in self.server.clients:
             user.transport.write(message.encode())
@@ -47,9 +63,13 @@ class ServerProtocol(asyncio.Protocol):
 
 class Server:
     clients: list
+    users: list
+    history: list
 
     def __init__(self):
         self.clients = []
+        self.users = []
+        self.history = []
 
     def build_protocol(self):
         return ServerProtocol(self)
